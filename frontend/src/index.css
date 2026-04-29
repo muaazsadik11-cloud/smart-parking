@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    @apply bg-carbon-950 text-white font-sans antialiased;
+    background-image:
+      radial-gradient(ellipse at 20% 20%, rgba(0, 255, 136, 0.04) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 80%, rgba(0, 212, 255, 0.03) 0%, transparent 50%);
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-carbon-900;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-carbon-500 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-neon-green;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-carbon-800/60 backdrop-blur-sm border border-white/5 rounded-2xl;
+  }
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300 hover:border-neon-green/20 hover:bg-carbon-700/60;
+  }
+  .neon-text {
+    @apply text-neon-green font-mono;
+    text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+  }
+  .neon-border {
+    @apply border border-neon-green/30;
+    box-shadow: 0 0 15px rgba(0, 255, 136, 0.05);
+  }
+  .status-active {
+    @apply bg-neon-green/10 text-neon-green border border-neon-green/20 font-mono text-xs px-2.5 py-1 rounded-full;
+  }
+  .status-completed {
+    @apply bg-neon-blue/10 text-neon-blue border border-neon-blue/20 font-mono text-xs px-2.5 py-1 rounded-full;
+  }
+  .btn-primary {
+    @apply bg-neon-green text-carbon-950 font-bold px-6 py-3 rounded-xl
+           hover:bg-neon-green/90 active:scale-95
+           transition-all duration-200 font-sans tracking-wide;
+  }
+  .btn-ghost {
+    @apply border border-white/10 text-white/70 font-medium px-5 py-2.5 rounded-xl
+           hover:border-neon-green/30 hover:text-neon-green
+           transition-all duration-200;
+  }
+  .scan-line {
+    @apply absolute inset-x-0 h-px bg-gradient-to-r from-transparent via-neon-green/60 to-transparent;
+    animation: scan 2s linear infinite;
+  }
+  .kpi-value {
+    @apply text-4xl font-display font-bold tracking-tight;
+  }
+}
+
+/* Scan animation override */
+@keyframes scan {
+  0%   { top: 0%; }
+  100% { top: 100%; }
+}

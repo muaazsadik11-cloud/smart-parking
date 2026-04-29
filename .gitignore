@@ -1,0 +1,64 @@
+# =========================
+# Node.js (backend + frontend)
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build folders
+dist/
+build/
+.next/
+out/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# =========================
+# Python (python-service)
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Python logs
+*.log
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# Test / temp data
+# =========================
+test-data/
+*.csv
+
+
+# =========================
+# Misc
+# =========================
+coverage/
+.cache/
+.tmp/
