@@ -12,9 +12,6 @@ pillow==10.3.0
 
 ultralytics==8.2.18
 
-easyocr==1.7.1
-torch
-torchvision
 
 gunicorn==22.0.0
 python-dotenv==1.0.1

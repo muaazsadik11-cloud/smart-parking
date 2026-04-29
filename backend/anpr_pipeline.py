@@ -17,8 +17,7 @@ import random
 import string
 from datetime import datetime
 from pathlib import Path
-import easyocr
-reader = easyocr.Reader(['en'])
+
 
 # Configure logging for debug traceability
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
@@ -245,9 +244,7 @@ def run_ocr_on_region(region: np.ndarray) -> str:
     for variant_name, img_variant in preprocessed.items():
             try:
                 tess_text = pytesseract.image_to_string(img_variant, config=config).strip()
-                easy_result = reader.readtext(img_variant)
-                easy_text = easy_result[0][1] if easy_result else ""
-                text = easy_text if len(easy_text) > len(tess_text) else tess_text
+                text = tess_text
                 cleaned = clean_plate_text(text)
                 if cleaned and len(cleaned) >= 6:
                     score = score_plate_text(cleaned)

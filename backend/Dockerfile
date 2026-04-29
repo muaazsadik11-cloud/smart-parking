@@ -35,4 +35,4 @@ ENV PORT=5000
 EXPOSE 5000
 
 # Production server
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 app:app
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 120 app:app
