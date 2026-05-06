@@ -7,7 +7,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'https://smart-parking-production-0e7a.up.railway.app',
         changeOrigin: true,
       }
     }

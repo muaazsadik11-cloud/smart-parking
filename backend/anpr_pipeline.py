@@ -115,31 +115,99 @@ def preprocess_image(image: np.ndarray) -> dict:
 # LAYER 2: YOLO DETECTION
 # ─────────────────────────────────────────────
 
-def detect_with_yolo(image: np.ndarray, confidence_threshold: float = 0.15) -> list:
+def detect_with_yolo(image: np.ndarray, confidence_threshold: float = 0.25) -> list:
     """
-    Use YOLOv8 to detect number plate bounding boxes.
-    Returns list of (x1, y1, x2, y2, confidence) tuples sorted by area (largest first).
+    Improved YOLOv8 plate detector.
+
+    Returns:
+        List of:
+        (x1, y1, x2, y2, confidence, area)
+
+    Improvements:
+    - Better confidence threshold
+    - Filters tiny detections
+    - Filters unrealistic aspect ratios
+    - Adds debug logs
+    - Prevents random false positives
     """
+
     model = get_yolo_model()
+
     if model is None:
+        logger.warning("❌ YOLO model is None")
         return []
 
     try:
+        logger.info("🚀 Running YOLO detection...")
+
         results = model(image, conf=confidence_threshold, verbose=False)
+
         detections = []
 
+        img_h, img_w = image.shape[:2]
+
         for result in results:
+
             if result.boxes is None:
                 continue
+
             for box in result.boxes:
+
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 conf = float(box.conf[0])
-                area = (x2 - x1) * (y2 - y1)
-                detections.append((x1, y1, x2, y2, conf, area))
 
-        # Sort by area descending (prefer larger detections)
-        detections.sort(key=lambda d: d[5], reverse=True)
-        logger.info(f"✅ YOLO found {len(detections)} detection(s)")
+                w = x2 - x1
+                h = y2 - y1
+
+                # Skip invalid boxes
+                if w <= 0 or h <= 0:
+                    continue
+
+                area = w * h
+
+                # ─────────────────────────────
+                # FILTER 1: Tiny detections
+                # ─────────────────────────────
+                if w < 60 or h < 20:
+                    logger.info(f"⚠️ Rejected tiny box: {w}x{h}")
+                    continue
+
+                # ─────────────────────────────
+                # FILTER 2: Plate aspect ratio
+                # Typical plates are wide rectangles
+                # ─────────────────────────────
+                aspect_ratio = w / float(h)
+
+                if aspect_ratio < 2.5 or aspect_ratio > 6.0:
+                    logger.info(
+                        f"⚠️ Rejected aspect ratio: {aspect_ratio:.2f}"
+                    )
+                    continue
+
+                # ─────────────────────────────
+                # FILTER 3: Huge detections
+                # Avoid detecting whole car/body
+                # ─────────────────────────────
+                if area > (img_w * img_h) * 0.30:
+                    logger.info("⚠️ Rejected huge detection")
+                    continue
+
+                detections.append(
+                    (x1, y1, x2, y2, conf, area)
+                )
+
+                logger.info(
+                    f"✅ Accepted YOLO box "
+                    f"conf={conf:.2f} "
+                    f"size={w}x{h} "
+                    f"aspect={aspect_ratio:.2f}"
+                )
+
+        # Sort by confidence first
+        detections.sort(key=lambda d: d[4], reverse=True)
+
+        logger.info(f"✅ YOLO final detections: {len(detections)}")
+
         return detections
 
     except Exception as e:
@@ -212,82 +280,153 @@ def get_full_image_region(image: np.ndarray) -> list:
 # ─────────────────────────────────────────────
 
 def run_ocr_on_region(region: np.ndarray) -> str:
-    """
-    Run Tesseract OCR with multiple configs and preprocessing variants.
-    Returns the best result based on length and character quality heuristic.
-    """
-    # Scale up small regions for better OCR
-    h, w = region.shape[:2]
-    if w < 200:
-        scale = 200 / w
-        region = cv2.resize(region, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC)
-    
-    region = cv2.resize(region, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
 
-    gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-    gray = cv2.bilateralFilter(gray, 11, 17, 17)
+    import cv2
+    import pytesseract
+    import re
+    import numpy as np
 
-    _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY)
+    try:
 
-    region = thresh
+        print("\n================ OCR START ================")
 
-    preprocessed = {
-    "clean": region,
-    "inverted": cv2.bitwise_not(region)
-}
+        # ─────────────────────────────
+        # Safety check
+        # ─────────────────────────────
+        if region is None or region.size == 0:
+            print("❌ Empty region received")
+            return ""
 
-    # Tesseract configs to try
-    config = "--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        print("✅ Region received")
 
-    results = []
+        # ─────────────────────────────
+        # Original region size
+        # ─────────────────────────────
+        h, w = region.shape[:2]
 
-    for variant_name, img_variant in preprocessed.items():
-            try:
-                tess_text = pytesseract.image_to_string(img_variant, config=config).strip()
-                text = tess_text
-                cleaned = clean_plate_text(text)
-                if cleaned and len(cleaned) >= 6:
-                    score = score_plate_text(cleaned)
-                    results.append((cleaned, score, variant_name))
-                    logger.debug(f"OCR [{variant_name}|{config[:6]}]: '{cleaned}' score={score:.2f}")
-            except Exception as e:
-                logger.debug(f"OCR attempt failed: {e}")
+        print(f"📏 Original region size: {w}x{h}")
 
-    if not results:
+        # ─────────────────────────────
+        # Convert grayscale
+        # ─────────────────────────────
+        gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+
+        print("✅ Converted to grayscale")
+
+        # ─────────────────────────────
+        # Resize
+        # ─────────────────────────────
+        gray = cv2.resize(
+            gray,
+            None,
+            fx=4,
+            fy=4,
+            interpolation=cv2.INTER_CUBIC
+        )
+
+        rh, rw = gray.shape[:2]
+
+        print(f"🔍 Resized image: {rw}x{rh}")
+
+        # ─────────────────────────────
+        # Denoise
+        # ─────────────────────────────
+        gray = cv2.bilateralFilter(
+            gray,
+            9,
+            75,
+            75
+        )
+
+        print("✅ Noise reduction applied")
+
+        # ─────────────────────────────
+        # Threshold
+        # ─────────────────────────────
+        _, thresh = cv2.threshold(
+            gray,
+            0,
+            255,
+            cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+
+        print("✅ Threshold applied")
+
+        # ─────────────────────────────
+        # Save debug image
+        # ─────────────────────────────
+        cv2.imwrite("debug_plate.jpg", thresh)
+
+        print("💾 Saved debug_plate.jpg")
+
+        # ─────────────────────────────
+        # OCR Config
+        # ─────────────────────────────
+        config = (
+            "--oem 3 "
+            "--psm 7 "
+            "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        )
+
+        print("⚙️ OCR Config:", config)
+
+        # ─────────────────────────────
+        # OCR
+        # ─────────────────────────────
+        text = pytesseract.image_to_string(
+            thresh,
+            config=config
+        )
+
+        print("🔤 RAW OCR:", repr(text))
+
+        # ─────────────────────────────
+        # Clean text
+        # ─────────────────────────────
+        cleaned = re.sub(
+            r'[^A-Z0-9]',
+            '',
+            text.upper()
+        )
+
+        print("🧹 CLEANED OCR:", cleaned)
+
+        # ─────────────────────────────
+        # Match realistic plate
+        # ─────────────────────────────
+        match = re.search(
+            r'[A-Z0-9]{4,8}',
+            cleaned
+        )
+
+        if match:
+
+            final_text = match.group(0)
+
+            print("✅ FINAL PLATE:", final_text)
+            print("================ OCR END ================\n")
+
+            return final_text
+
+        print("⚠️ No valid plate match found")
+        print("================ OCR END ================\n")
+
+        return cleaned
+
+    except Exception as e:
+
+        print("❌ OCR ERROR:", str(e))
+        print("================ OCR FAILED ================\n")
+
         return ""
-
-    # Pick highest scored result
-    results.sort(key=lambda r: r[1], reverse=True)
-    best_text, best_score, best_variant = results[0]
-    best_text = best_text.replace(" ", "")
-    logger.info(f"✅ Best OCR: '{best_text}' (score={best_score:.2f}, variant={best_variant})")
-    return best_text
 
 
 def clean_plate_text(text: str) -> str:
-    text = re.sub(r'[^A-Z0-9]', '', text.upper())
-
-    corrected = list(text)
-
-    for i, c in enumerate(corrected):
-
-        # 🔹 First 2–3 characters → usually letters
-        if i < 3:
-            if c == '8': corrected[i] = 'B'
-            if c == '0': corrected[i] = 'O'
-            if c == '1': corrected[i] = 'I'
-            if c == '5': corrected[i] = 'S'
-            if c == '2': corrected[i] = 'Z'
-
-        # 🔹 Last part → usually numbers
-        else:
-            if c == 'B': corrected[i] = '8'
-            if c == 'O': corrected[i] = '0'
-            if c == 'I': corrected[i] = '1'
-            if c == 'S': corrected[i] = '5'
-            if c == 'Z': corrected[i] = '2'
-
-    return ''.join(corrected)
+    """
+    Clean OCR output without aggressive character replacement.
+    Keeps only A-Z and 0-9.
+    """
+    return re.sub(r'[^A-Z0-9]', '', text.upper())
 
 
 def score_plate_text(text: str) -> float:
@@ -432,18 +571,36 @@ def process_image(image_path: str, filename: str = "") -> dict:
 
     # ── LAYER 6: FILENAME FALLBACK ──
     if not best_plate:
-        fname = filename or os.path.basename(image_path)
-        best_plate = extract_from_filename(fname)
-        if best_plate:
-            detection_method = "filename"
-            best_confidence = 0.3
-            logger.info(f"📁 Filename fallback: {best_plate}")
+         
+        elapsed = (
+            datetime.now() - start_time
+        ).total_seconds() * 1000
+         
+        return {
+            "plate_text": "NOT_DETECTED",
+            "confidence": 0.0,
+            "method": "failed",
+            "bbox": None,
+            "annotated_image_path": image_path,
+            "processing_time_ms": round(elapsed, 1),
+    }
 
     # ── LAYER 7: SYNTHETIC FALLBACK ──
     if not best_plate:
-        best_plate = generate_synthetic_plate()
-        detection_method = "synthetic"
-        best_confidence = 0.1
+
+        elapsed = (
+            datetime.now() - start_time
+        ).total_seconds() * 1000
+
+        return {
+        "plate_text": "NOT_DETECTED",
+        "confidence": 0.0,
+        "method": "failed",
+        "bbox": None,
+        "annotated_image_path": image_path,
+        "processing_time_ms": round(elapsed, 1),
+    }
+        
 
     # Ensure uppercase & clean
     best_plate = clean_plate_text(best_plate) or best_plate.upper()
